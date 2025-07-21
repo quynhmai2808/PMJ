@@ -56,6 +56,20 @@ date_to_weeknum <- function(date_obj) {
   return(week_num)
 }
 
+convert_csv_to_utf8 <- function(input_path, output_path = NULL, original_encoding = "latin1") {
+  if (is.null(output_path)) {
+    output_path <- input_path  # overwrite original file
+  }
+  
+  # Read file with original encoding
+  text_lines <- readLines(input_path, encoding = original_encoding, warn = FALSE)
+  
+  # Write file as UTF-8
+  writeLines(text_lines, output_path, useBytes = FALSE)
+  
+  message("✅ File converted to UTF-8: ", output_path)
+}
+
 
 # For article file:
 article_df <- check_and_clean_numeric(article_df, "Barcode")
