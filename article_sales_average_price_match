@@ -60,21 +60,31 @@ convert_csv_to_utf8 <- function(input_path, output_path = NULL, original_encodin
   if (is.null(output_path)) {
     output_path <- input_path  # overwrite original file
   }
-  
-  # Try to guess encoding using readr::guess_encoding()
-  enc_guess <- readr::guess_encoding(input_path, n_max = 1000)
-  current_encoding <- enc_guess$encoding[1]
+    # Read the raw lines
+  lines <- readLines(input_path, warn = FALSE)
 
-  if (tolower(current_encoding) %in% c("utf-8", "utf8")) {
+  # Collapse to a single string for encoding detection
+  text_sample <- paste(lines, collapse = "\n")
+
+  # Detect encoding from stringi or fallback
+  is_utf8 <- stri_enc_isutf8(text_sample)
+
+  if (is_utf8) {
     message("ℹ️ File already in UTF-8: ", input_path)
-  } else {
-    message("🔄 Converting ", input_path, " from ", current_encoding, " to UTF-8")
-    # Read with guessed or fallback encoding
-    text_lines <- readLines(input_path, encoding = current_encoding %||% fallback_encoding, warn = FALSE)
-    # Write as UTF-8
-    writeLines(text_lines, output_path, useBytes = FALSE)
-    message("✅ File saved in UTF-8: ", output_path)
+    return(invisible(TRUE))
   }
+
+  message("🔄 File '", input_path, "' is not UTF-8. Converting from ", fallback_encoding, " to UTF-8...")
+
+  # Re-read using fallback encoding
+  text_lines <- readLines(input_path, encoding = fallback_encoding, warn = FALSE)
+
+  # Write in UTF-8
+  writeLines(text_lines, output_path, useBytes = FALSE)
+
+  message("✅ File converted and saved as UTF-8: ", output_path)
+  return(invisible(TRUE))
+  
 }
 
 
