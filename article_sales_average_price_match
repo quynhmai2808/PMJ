@@ -147,30 +147,49 @@ week_files <- file_paths[str_detect(tolower(file_paths), "week|kw|woche")]
 article_file <- week_files[str_detect(tolower(week_files), "article|artikel")]
 transaction_file <- week_files[str_detect(tolower(week_files), "transaction|transaktion")]
 
+article_df <- read_csv(article_file)
+transaction_df <- read_csv(transaction_file)
 
-# Read Article file
-article_df <- read_csv("niemeyer_article.csv")
+# 1. Check barcodes in article file, remove non-numeric rows
+article_df <- check_barcode_numeric(article_df, "Barcode")
 
-# Read Transaction file
-transaction_df <- read_csv("niemeyer_transaction.csv")
+# 2. Remove leading zeros from Barcode
+article_df$Barcode <- remove_leading_zeros(article_df$Barcode)
 
-# Step 1: Add Price column in Transaction data
+# Assuming transaction file has columns for year, month name (e.g., "April"), day,
+# example column names: POS_Start_Receipt_Date_Jahr, POS_Start_Receipt_Date_Monat, POS_Start_Receipt_Date_Tag
+# If these columns exist, convert to Date and week number:
+
+if(all(c("POS_Start_Receipt_Date_Jahr", "POS_Start_Receipt_Date_Monat", "POS_Start_Receipt_Date_Tag") %in% colnames(transaction_df))){
+  
+  # Convert date
+  transaction_df <- transaction_df %>%
+    mutate(
+      Receipt_Date = convert_to_date(POS_Start_Receipt_Date_Jahr, POS_Start_Receipt_Date_Monat, POS_Start_Receipt_Date_Tag),
+      Week_Num = date_to_weeknum(Receipt_Date)
+    )
+} else {
+  message("Date columns missing in transaction file; skipping date conversion.")
+}
+
+# Continue with previous steps
+
+# Add Price column
 transaction_df <- transaction_df %>%
   mutate(Price = POS_Amount_Tendered / POS_POS_Quantity)
 
-# Step 2: Match by Barcode and compute average price per product
-# Group by Barcode and calculate average price
+# Average price per barcode
 avg_price_df <- transaction_df %>%
   group_by(POS_Barcode_No_) %>%
-  summarise(Average_Price = mean(Price, na.rm = TRUE))
+  summarise(Average_Price = mean(Price, na.rm = TRUE), .groups = "drop")
 
-# Step 3: Merge with Article file using Barcode
+# Merge average price into article file
 article_with_price <- article_df %>%
   left_join(avg_price_df, by = c("Barcode" = "POS_Barcode_No_"))
 
-# Step 4 (optional): Save to CSV
-write_csv(article_with_price, "niemeyer_article_with_avg_price.csv")
+# Save result
+output_file <- file.path(data_path, paste0(week_selected, "_AS_NM_with_price.csv"))
+write_csv(article_with_price, output_file)
 
-# Preview result
-print(head(article_with_price))
+message("✅ Done. Output saved to ", output_file)
 
