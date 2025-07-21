@@ -6,4 +6,33 @@
 # Match Article File and Transaction File by Barcode = POS_Barcode_No_, then add column price to Article File. After that make pivot to calculate avarage price by each Barcode.
 
 
+# Load necessary libraries
+library(dplyr)
+library(readr)
+
+# Read Article file
+article_df <- read_csv("niemeyer_article.csv")
+
+# Read Transaction file
+transaction_df <- read_csv("niemeyer_transaction.csv")
+
+# Step 1: Add Price column in Transaction data
+transaction_df <- transaction_df %>%
+  mutate(Price = POS_Amount_Tendered / POS_POS_Quantity)
+
+# Step 2: Match by Barcode and compute average price per product
+# Group by Barcode and calculate average price
+avg_price_df <- transaction_df %>%
+  group_by(POS_Barcode_No_) %>%
+  summarise(Average_Price = mean(Price, na.rm = TRUE))
+
+# Step 3: Merge with Article file using Barcode
+article_with_price <- article_df %>%
+  left_join(avg_price_df, by = c("Barcode" = "POS_Barcode_No_"))
+
+# Step 4 (optional): Save to CSV
+write_csv(article_with_price, "niemeyer_article_with_avg_price.csv")
+
+# Preview result
+print(head(article_with_price))
 
