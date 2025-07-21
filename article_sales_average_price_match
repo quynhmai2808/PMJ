@@ -30,6 +30,12 @@ check_and_clean_numeric <- function(df, col_name) {
   return(df)
 }
 
+# For article file:
+article_df <- check_and_clean_numeric(article_df, "Barcode")
+
+# For transaction file:
+transaction_df <- check_and_clean_numeric(transaction_df, "POS_Barcode_No_")
+
 # Example list of file paths (replace this with your actual list)
 file_paths <- list.files(path = "your/folder/path", pattern = "\\.csv$", full.names = TRUE)
 
