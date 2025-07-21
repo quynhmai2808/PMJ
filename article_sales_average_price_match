@@ -1,1 +1,9 @@
+# task: create a R script that matches the Niemeyer article file with the Niemeyer transaction data so that we can create an additional column for the Niemeyer article file. 
+# The column should be the average price per product.
+# Article File Structure: Barcode,Bezeichnung,VKE,Inhalt,Warengruppencode,Warengruppe,Artikelkategoriencode,Artikelkategorie,Produktgruppencode,Produktgruppe
+# Transaction File Structure: POS_Start_Receipt_Date_Jahr,POS_Start_Receipt_Date_Monat,POS_Start_Receipt_Date_Tag	POS_Woche_des_Jahres,POS_Store,POS_POS_Quantity,POS_Amount_Tendered,POS_Barcode_No_
+# Add column Price in Transaction File by calculating POS_Amount_Tendered/ POS_POS_Quantity
+# Match Article File and Transaction File by Barcode = POS_Barcode_No_, then add column price to Article File. After that make pivot to calculate avarage price by each Barcode.
+
+
 
