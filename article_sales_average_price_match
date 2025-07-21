@@ -138,14 +138,8 @@ check_transaction_quantity <- function(df, qty_col = "POS_POS_Quantity") {
 # Example list of file paths (replace this with your actual list)
 file_paths <- list.files(path = "your/folder/path", pattern = "\\.csv$", full.names = TRUE)
 
-# Step 1: Find file with "week" indicator in name
-# You can adjust the pattern to match your naming convention (e.g., KW, Woche, week_)
-week_files <- file_paths[str_detect(tolower(file_paths), "week|kw|woche")]
-
-# Step 2: Identify article vs transaction file
-# Assumption: Article file contains "article" or "artikel" in name
-article_file <- week_files[str_detect(tolower(week_files), "article|artikel")]
-transaction_file <- week_files[str_detect(tolower(week_files), "transaction|transaktion")]
+article_file <- all_files[str_detect(all_files, paste0("^", week_selected, "_AS_NM.csv$"))]
+transaction_file <- all_files[str_detect(all_files, paste0("^", week_selected, "_UM_NM_NEUE_MENGE.csv$"))]
 
 article_df <- read_csv(article_file)
 transaction_df <- read_csv(transaction_file)
