@@ -12,6 +12,24 @@ library(dplyr)
 library(readr)
 library(stringr)
 
+check_and_clean_numeric <- function(df, col_name) {
+  # Check non-numeric rows
+  non_numeric <- df %>%
+    filter(!str_detect(!!sym(col_name), "^\\d+$"))
+  
+  if (nrow(non_numeric) > 0) {
+    warning(paste("Warning:", nrow(non_numeric), "rows have non-numeric values in column", col_name, 
+                  "- These rows will be removed."))
+    print(non_numeric[[col_name]])
+    
+    # Remove non-numeric rows
+    df <- df %>%
+      filter(str_detect(!!sym(col_name), "^\\d+$"))
+  }
+  
+  return(df)
+}
+
 # Example list of file paths (replace this with your actual list)
 file_paths <- list.files(path = "your/folder/path", pattern = "\\.csv$", full.names = TRUE)
 
