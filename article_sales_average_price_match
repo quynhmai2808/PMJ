@@ -9,120 +9,100 @@
 
 # Load necessary libraries
 library(dplyr)
+library(lubridate)
 library(readr)
+library(readxl)
 library(stringr)
+library(stringi)
 
-# function 1: Check if Barcode is numeric, if not print warning and remove those rows
-check_and_clean_numeric <- function(df, col_name) {
+# VARIABLE DEFINIEREN  ------------------
+
+# Set week pattern here (change this for each week)
+
+week_selected <- "2025_KW_27"
+foldername_data <- "Niemeyer"
+PATH = paste0("/qa/data1/PMI/Archive/",foldername_data,"/")
+PATHRES = paste0("/qa/data1/PMI/Results/",foldername_data,"/")
+
+# Find matching files
+
+all_files <- list.files(PATH, pattern = "\\.csv$", full.names = TRUE)
+
+# Match article and transaction files by filename pattern
+
+article_file <- all_files[str_detect(all_files, paste0(week_selected, ".*_AS_NM\\.csv$"))]
+transaction_file <- all_files[str_detect(all_files, paste0(week_selected, ".*_UM_NM_NEUE_MENGE\\.csv$"))]
+
+
+# VALIDATION --------------------------------------------------------------
+
+if (length(article_file) != 1 || length (transaction_file) != 1) {
+  
+  stop(paste("Error: Could not find exactly article and transaction file for", week_selected))
+  
+}
+
+
+# HELPER FUNCTION ---------------------------------------------------------
+
+# 1. Check and clean if article number is numeric
+
+check_and_clean_non_numeric <- function (df, col_name) {
   # Check non-numeric rows
-  non_numeric <- df %>%
+  non_numeric <- df %>% 
     filter(!str_detect(!!sym(col_name), "^\\d+$"))
   
   if (nrow(non_numeric) > 0) {
-    warning(paste("Warning:", nrow(non_numeric), "rows have non-numeric values in column", col_name, 
-                  "- These rows will be removed."))
+    warning(paste("Warning:", nrow(non_numeric), "rows have non-numeric values in column", col_name,
+                  "These non-numeric sign will be removed"))
     print(non_numeric[[col_name]])
     
-    # Remove non-numeric rows
-    df <- df %>%
-      filter(str_detect(!!sym(col_name), "^\\d+$"))
+    # Remove all non-digit characters (keep only 0-9)
+    # df[[col_name]] <- str_replace_all(df[[col_name]], "[^0-9]", "")
   }
   
   return(df)
 }
 
-# function 2: Remove leading zeros from Barcode
-remove_leading_zeros <- function(barcode_vec) {
+# 2. Remove leading zeros from Barcode
+
+remove_leading_zeros <- function(barcode) {
   # Convert to numeric and back to character to remove leading zeros safely
-  cleaned <- as.character(as.numeric(barcode_vec))
+  cleaned <- as.character(as.numeric(barcode))
   # Handle NAs if any barcode was not numeric (should be removed by previous step)
-  cleaned[is.na(cleaned)] <- barcode_vec[is.na(cleaned)]
+  cleaned[is.na(cleaned)] <- barcode[is.na(cleaned)]
   return(cleaned)
 }
 
-# function 3: Convert year, month name, day columns to Date object
-convert_to_date <- function(year_col, month_col, day_col) {
-  # Combine into a string: "day month year" e.g. "15 April 2025"
-  date_str <- paste(day_col, month_col, year_col)
-  # Parse date, format like "15 April 2025"
-  date_obj <- dmy(date_str)
-  return(date_obj)
-}
+# 3. Convert year, month name, day columns to Date object
+# convert_to_date <- function(day, month_name, year) {
+#   
+#   months_de <- c ("Januar", "Februar", "März","April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember")
+#   month_num <- match(month_name, months_de)
+#   
+#   # if (is.na(month_num)) stop("Unknown month: ", month_name)
+#   
+#   date_str <- sprintf("%02d-%02d-%04d", as.integer(day), month_num, as.integer(year))
+#   date_obj <- as.Date(date_str)
+#   
+#   return(date_obj)
+# }
 
-# === Helper function 4: Convert Date object to week number of year
-date_to_weeknum <- function(date_obj) {
-  # Using ISOweek numbering (Monday = first day of week)
-  week_num <- isoweek(date_obj)
-  return(week_num)
-}
+# 4. Convert Date object to week number of year
+# date_to_weeknum <- function(date_obj) {
+#   # Using ISOweek numbering (Monday = first day of week)
+#   week_num <- isoweek(date_obj)
+#   return(week_num)
+# }
 
-convert_csv_to_utf8 <- function(input_path, output_path = NULL, original_encoding = "latin1") {
-  if (is.null(output_path)) {
-    output_path <- input_path  # overwrite original file
-  }
-    # Read the raw lines
-  lines <- readLines(input_path, warn = FALSE)
-
-  # Collapse to a single string for encoding detection
-  text_sample <- paste(lines, collapse = "\n")
-
-  # Detect encoding from stringi or fallback
-  is_utf8 <- stri_enc_isutf8(text_sample)
-
-  if (is_utf8) {
-    message("ℹ️ File already in UTF-8: ", input_path)
-    return(invisible(TRUE))
-  }
-
-  message("🔄 File '", input_path, "' is not UTF-8. Converting from ", fallback_encoding, " to UTF-8...")
-
-  # Re-read using fallback encoding
-  text_lines <- readLines(input_path, encoding = fallback_encoding, warn = FALSE)
-
-  # Write in UTF-8
-  writeLines(text_lines, output_path, useBytes = FALSE)
-
-  message("✅ File converted and saved as UTF-8: ", output_path)
-  return(invisible(TRUE))
-  
-}
-
-
-# For article file:
-article_df <- check_and_clean_numeric(article_df, "Barcode")
-
-# For transaction file:
-transaction_df <- check_and_clean_numeric(transaction_df, "POS_Barcode_No_")
-
-# 2. Remove leading zeros from Barcode
-article_df$Barcode <- remove_leading_zeros(article_df$Barcode)
-
-
-# Assuming transaction file has columns for year, month name (e.g., "April"), day,
-# example column names: POS_Start_Receipt_Date_Jahr, POS_Start_Receipt_Date_Monat, POS_Start_Receipt_Date_Tag
-# If these columns exist, convert to Date and week number:
-
-if(all(c("POS_Start_Receipt_Date_Jahr", "POS_Start_Receipt_Date_Monat", "POS_Start_Receipt_Date_Tag") %in% colnames(transaction_df))){
-  
-  # Convert date
-  transaction_df <- transaction_df %>%
-    mutate(
-      Receipt_Date = convert_to_date(POS_Start_Receipt_Date_Jahr, POS_Start_Receipt_Date_Monat, POS_Start_Receipt_Date_Tag),
-      Week_Num = date_to_weeknum(Receipt_Date)
-    )
-} else {
-  message("Date columns missing in transaction file; skipping date conversion.")
-}
-
-# Check if one barcode maps to multiple distinct Bezeichnung (names)
+# 5. Check if one barcode maps to multiple distinct Bezeichnung (names)
 check_barcode_duplication <- function(df, barcode_col = "Barcode", name_col = "Bezeichnung") {
   dup_df <- df %>%
     group_by(!!sym(barcode_col)) %>%
     summarise(
       n_names = n_distinct(!!sym(name_col)),
       names = paste(unique(!!sym(name_col)), collapse = "; "),
-      .groups = "drop"
-    ) %>%
+      .groups = "drop") %>%
     filter(n_names > 1)
   
   if (nrow(dup_df) > 0) {
@@ -133,7 +113,7 @@ check_barcode_duplication <- function(df, barcode_col = "Barcode", name_col = "B
   }
 }
 
-# Check transaction quantity for negatives or fractional values
+# 6. Check transaction quantity for negatives or fractional values
 check_transaction_quantity <- function(df, qty_col = "POS_POS_Quantity") {
   negative_qty <- df %>% filter(!!sym(qty_col) < 0)
   fractional_qty <- df %>% filter((!!sym(qty_col) %% 1) != 0)
@@ -152,55 +132,93 @@ check_transaction_quantity <- function(df, qty_col = "POS_POS_Quantity") {
     message("No fractional quantities found.")
   }
 }
-# Example list of file paths (replace this with your actual list)
-file_paths <- list.files(path = "your/folder/path", pattern = "\\.csv$", full.names = TRUE)
 
-article_file <- all_files[str_detect(all_files, paste0("^", week_selected, "_AS_NM.csv$"))]
-transaction_file <- all_files[str_detect(all_files, paste0("^", week_selected, "_UM_NM_NEUE_MENGE.csv$"))]
+# 7. Convert to UTF-8
 
-article_df <- read_csv(article_file)
-transaction_df <- read_csv(transaction_file)
+convert_csv_to_utf8 <- function(input_path, output_path = NULL, fallback_encoding = "latin1") {
+  if (is.null(output_path)) {
+    output_path <- input_path  # overwrite original file
+  }
+  
+  # Read the raw lines
+  lines <- readLines (input_path, warn = FALSE)
+  
+  # Collapse to a single string for encoding detection
+  text_sample <- paste(lines, collapse = "\n")
+  
+  # Detect encoding from stringi or fallback
+  is_utf8 <- stri_enc_isutf8(text_sample)
+  
+  if (is_utf8) {
+    message("File already in UTF-8: ", input_path)
+  }
+  
+  # Re-read using fallback encoding
+  text_lines <- readLines(input_path, encoding = fallback_encoding, warn = FALSE)
+  
+  # Write in UTF-8
+  writeLines(text_lines, output_path, useBytes = FALSE)
+  
+  message("File converted and saved as UTF-8: ", output_path)
+}
 
-# 1. Check barcodes in article file, remove non-numeric rows
-article_df <- check_barcode_numeric(article_df, "Barcode")
+# MAIN FUNCTION -----------------------------------------------------------
 
-# 2. Remove leading zeros from Barcode
+# 0. Convert file before reading
+convert_csv_to_utf8 (article_file)
+convert_csv_to_utf8 (transaction_file)
+
+# 1. Read file
+
+article_df <- read_csv(article_file, locale = locale(encoding = "UTF-8"))
+transaction_df <- read_csv(transaction_file, locale = locale(encoding = "UTF-8"))
+
+# 2. Check barcodes , remove non-numeric rows
+article_df <- check_and_clean_non_numeric(article_df, "Barcode")
+transaction_df <- check_and_clean_non_numeric(transaction_df, "POS_Barcode_No_")
+
+# 3. Remove leading zeros from Barcode
 article_df$Barcode <- remove_leading_zeros(article_df$Barcode)
+transaction_df$POS_Barcode_No_ <- remove_leading_zeros(transaction_df$POS_Barcode_No_)
 
-# Assuming transaction file has columns for year, month name (e.g., "April"), day,
+# 4. Transaction file has columns for year, month name (e.g., "April"), day.
 # example column names: POS_Start_Receipt_Date_Jahr, POS_Start_Receipt_Date_Monat, POS_Start_Receipt_Date_Tag
 # If these columns exist, convert to Date and week number:
 
-if(all(c("POS_Start_Receipt_Date_Jahr", "POS_Start_Receipt_Date_Monat", "POS_Start_Receipt_Date_Tag") %in% colnames(transaction_df))){
-  
-  # Convert date
+# if(all(c("POS_Start_Receipt_Date_Tag","POS_Start_Receipt_Date_Monat","POS_Start_Receipt_Date_Jahr") %in% colnames(transaction_df))){
+#   
+#   # Convert date
+#   transaction_df <- transaction_df %>%
+#     mutate(
+#       Receipt_Date = convert_to_date(transaction_df$POS_Start_Receipt_Date_Tag, transaction_df$POS_Start_Receipt_Date_Monat, transaction_df$POS_Start_Receipt_Date_Jahr),
+#       Week_Num = date_to_weeknum(Receipt_Date)
+#     )
+# } else {
+#   message("Date columns missing in transaction file, skipping date conversion.")
+# }
+
+# 5. Check duplicatio, whether barcode + bezeichnung is distinct
+  check_barcode_duplication (article_df, "Barcode", "Bezeichnung")
+
+# 6. Check quantity/ Units Value
+  check_transaction_quantity (transaction_df, "POS_POS_Quantity")
+
+# 7. Additional Function for Average Price
+
+  # Add Price column
   transaction_df <- transaction_df %>%
-    mutate(
-      Receipt_Date = convert_to_date(POS_Start_Receipt_Date_Jahr, POS_Start_Receipt_Date_Monat, POS_Start_Receipt_Date_Tag),
-      Week_Num = date_to_weeknum(Receipt_Date)
-    )
-} else {
-  message("Date columns missing in transaction file; skipping date conversion.")
-}
-
-# Continue with previous steps
-
-# Add Price column
-transaction_df <- transaction_df %>%
-  mutate(Price = POS_Amount_Tendered / POS_POS_Quantity)
-
-# Average price per barcode
-avg_price_df <- transaction_df %>%
-  group_by(POS_Barcode_No_) %>%
-  summarise(Average_Price = mean(Price, na.rm = TRUE), .groups = "drop")
-
-# Merge average price into article file
-article_with_price <- article_df %>%
-  left_join(avg_price_df, by = c("Barcode" = "POS_Barcode_No_"))
-
-# Save result
-output_file <- file.path(data_path, paste0(week_selected, "_AS_NM_with_price.csv"))
-write_csv(article_with_price, output_file)
-
-message("✅ Done. Output saved to ", output_file)
-
+    mutate(Price = POS_Amount_Tendered / POS_POS_Quantity)
+  
+  # Average price per barcode
+  avg_price_df <- transaction_df %>%
+    group_by(POS_Barcode_No_) %>%
+    summarise(Average_Price = round(mean(Price, na.rm = TRUE),2), .groups = "drop")
+  
+  # Merge average price into article file
+  article_with_price <- article_df %>%
+    left_join(avg_price_df, by = c("Barcode" = "POS_Barcode_No_"))
+  
+  # Save result
+  output_file <- file.path(PATHRES, paste0(week_selected, "_AS_NM_with_price.csv"))
+  write_csv(article_with_price, output_file)
+  
