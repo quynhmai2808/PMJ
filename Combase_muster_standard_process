@@ -1,0 +1,761 @@
+## Clear objects from workspace, set clock and define time stamp
+rm(list=ls())
+st <- Sys.time()
+runid =  format(st, "%y%m%d")
+gc()
+options("width"=200)
+getwd()
+
+library(dplyr)
+library(lubridate)
+library(tidyverse)
+library(readr)
+library(readxl)
+library(stringr)
+library(stringi)
+library(openxlsx)
+
+# VARIABLE DEFINIEREN  ------------------
+# year <- "2026"
+# week <- "12"
+# 
+# start_date <- floor_date(
+#   ymd(paste0(year, "-01-01")) + weeks(as.numeric(week) - 1),
+#   unit = "week",
+#   week_start = 1
+# )
+# end_date <- start_date + 6
+
+foldername_data <- "Combase"
+retailer_name <- "Combase"
+
+PATHORG = paste0("/qa/data1/PMI/Archive/",foldername_data, "/")
+PATHRES = paste0("/qa/data1/PMI/Results/",retailer_name,"/")
+PATHPMI = "/qa/data1/PMI/Archive/PMI_Dateien/"
+
+# =========================
+# DISCOVER FILES
+# =========================
+
+files_1 <- list.files(
+  path = PATHORG, 
+  pattern = "^\\d{4}_\\d{2}_\\d{2}_\\d{4}_COMBASE.csv$",
+  # pattern = "*_COMBASE.csv$",
+  full.names = TRUE
+)
+
+files_2 <- list.files(
+  path = PATHORG, 
+  pattern = "^\\d{2}_\\d{2}_\\d{4}_COMBASE.csv$",
+  # pattern = "*_COMBASE.csv$",
+  full.names = TRUE
+)
+
+meta_df_1 <- data.frame(files_1, file_name = basename(files_1), stringsAsFactors = FALSE) %>%
+  mutate (
+    # extract date
+    file_date = as.Date(sub("^\\d+_", "", sub("_COMBASE\\.csv$", "", file_name)), format = "%d_%m_%Y"),
+    
+    # time features
+    year  = isoyear(file_date),
+    week  = paste0(year,format(file_date, "%V")),
+    day   = weekdays(file_date),
+    
+    # week boundaries
+    wday  = as.integer(format(file_date, "%u")),
+    start_week = file_date - (wday - 1),
+    end_week   = file_date + (7 - wday),
+    
+    # file size
+    size_bytes = file.info(files_1)$size,
+    size_kb = round(size_bytes / 1024, 2)
+  ) %>%
+  arrange(week)
+
+meta_df_2 <- data.frame(files_2, file_name = basename(files_2), stringsAsFactors = FALSE) %>%
+  mutate (
+    # extract date
+    file_date = as.Date(sub("_COMBASE\\.csv$", "", file_name), format = "%d_%m_%Y"),
+    
+    # time features
+    year  = isoyear(file_date),
+    week  = paste0(year,format(file_date, "%V")),
+    day   = weekdays(file_date),
+    
+    # week boundaries
+    wday  = as.integer(format(file_date, "%u")),
+    start_week = file_date - (wday - 1),
+    end_week   = file_date + (7 - wday),
+    
+    # file size
+    size_bytes = file.info(files_2)$size,
+    size_kb = round(size_bytes / 1024, 2)
+  ) %>%
+  arrange(week)
+
+# file_dates <- as.Date(sub("^(\\d{2})_(\\d{2})_(\\d{4})_COMBASE.csv$", "\\3\\2\\1", basename(files)),  format = "%Y%m%d")
+# file_month <- format(file_dates, "%Y-%m")
+# 
+# fact_info <- data.frame(file_path = files, file_name = basename(files), stringsAsFactors = FALSE)
+# 
+# #-- Date and week
+# 
+# fact_info$date <- as.Date(sub("^(\\d{2})_(\\d{2})_(\\d{4})_COMBASE.csv$", "\\3\\2\\1", fact_info$file_name),  format = "%Y%m%d")
+# fact_info$week <- isoweek(fact_info$date)
+# fact_info$year <- isoyear(fact_info$date)
+# 
+# fact_info$day <- weekdays(fact_info$date)
+# fact_info$start_date <- floor_date(
+#   ymd(paste0(fact_info$year, "-01-01")) + weeks(as.numeric(fact_info$week) - 1),
+#   unit = "week",
+#   week_start = 1
+# )
+# fact_info$end_date <- fact_info$start_date + 6
+# 
+# fact_info$size_kB <- round((file.info(fact_info$file_path)$size)/ 1024, 2) #in KiloByte
+# 
+# fact_info <- fact_info %>%
+#   arrange(week)
+
+# Read files---------------------------------------------------------------------------------
+
+data_list_1 <- lapply(seq_len(nrow(meta_df_1)), function(i) {
+  
+  df <- read.csv(meta_df_1$files_1[i], sep = ";", fill = TRUE, quote = "")
+  
+  df %>%
+    mutate(
+      file_name  = meta_df_1$files_1[i],
+      file_date  = as.character(meta_df_1$file_date[i]),
+      year_file  = as.character(meta_df_1$year[i]),
+      week_file  = as.character(meta_df_1$week[i]),
+      day        = as.character(meta_df_1$day[i]),
+      start_week = as.character(meta_df_1$start_week[i]),
+      end_week   = as.character(meta_df_1$end_week[i]),
+      size_kb    = as.character(meta_df_1$size_kb[i]),
+    
+      # QC: week in data
+      week_in_data = paste0(as.integer(POS_Start_Receipt_Date_Jahr),sprintf("%02d", as.integer(POS_Woche_des_Jahres))),
+      
+      # QC flag per row
+      week_match_flag = week_in_data == week_file
+      
+    ) %>%
+    mutate(across(everything(), as.character)) 
+  
+})
+
+data_list_2 <- lapply(seq_len(nrow(meta_df_2)), function(i) {
+  
+  df <- read.csv(meta_df_2$files_2[i], sep = ";", fill = TRUE, quote = "")
+  
+  df %>%
+    mutate(
+      file_name  = meta_df_2$file_name[i],
+      file_date  = as.character(meta_df_2$file_date[i]),
+      year_file  = as.character(meta_df_2$year[i]),
+      week_file  = as.character(meta_df_2$week[i]),
+      day        = as.character(meta_df_2$day[i]),
+      start_week = as.character(meta_df_2$start_week[i]),
+      end_week   = as.character(meta_df_2$end_week[i]),
+      size_kb    = as.character(meta_df_2$size_kb[i]),
+      
+      # QC: week in data
+      week_in_data = paste0(as.integer(POS_Start_Receipt_Date_Jahr),sprintf("%02d", as.integer(POS_Woche_des_Jahres))),
+      
+      # QC flag per row
+      week_match_flag = week_in_data == week_file
+      
+    ) %>%
+    mutate(across(everything(), as.character)) 
+  
+})
+
+names(data_list_1) <- meta_df_1$file_name
+names(data_list_2) <- meta_df_2$file_name
+
+# Analyse Statistic: EAN_count, Store_count, number of records, Total Sales, Total Revenue
+
+# mix_price_cases_list <- vector("list", length(data_list)) # initialize a list for saving result before running loop
+
+summary_df <- lapply(seq_len(length(data_list)), function(i) {
+  
+  df <- data_list[[i]]
+  
+  # ---- Standardize data ------
+  
+  EAN <- as.character(df$POS_Barcode_No)
+  Text <- df$Bezeichnung
+  
+  Sales   <- as.numeric(gsub(",", ".", df$POS_POS_Quantity))
+  Revenue <- as.numeric(gsub(",", ".", df$POS_Amount_Tendered))
+  
+  calculate_price <- ifelse(
+    Sales > 0,
+    round(Revenue / Sales, 2),
+    NA
+  )
+  
+  df$calculate_price <- calculate_price
+  
+  # --- Checks ---
+  
+  # 1. Duplicate EAN text
+  dup_ean_text <- df %>%
+    group_by(POS_Barcode_No) %>%
+    summarise(n_text = n_distinct(Bezeichnung), .groups = "drop") %>%
+    filter(n_text > 1) %>%
+    nrow()
+  
+  # 2. EAN empty
+  ean_empty <- sum(is.na(EAN) | trimws(EAN) == "" | EAN == "0")
+  
+  # 3. EAN non-numeric
+  ean_non_numeric <- sum(!grepl("^[0-9]+$", EAN) & !is.na(EAN))
+  
+  # 4. length error
+  ean_length_error <- sum(nchar(EAN) > 14, na.rm = TRUE)
+  
+  # 5. qty decimal
+  qty_decimal <- sum(!is.na(Sales) & Sales %% 1 != 0)
+  
+  # 6. mix price
+  mix_price_ean <- df %>% 
+    filter(!is.na(calculate_price)) %>%
+    group_by(POS_Barcode_No) %>%
+    summarise(
+      n_price = dplyr::n_distinct(calculate_price, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    filter(n_price > 1)
+  
+  mix_price_ean_count <- mix_price_ean %>% # For Summary
+    nrow()
+  # #-----------------------------------------------------------------------------------------------------
+  # mix_price_df <- df %>%
+  #   filter(POS_Barcode_No %in% mix_price_ean$POS_Barcode_No) # For Extracting list of all mix price cases
+  # 
+  # # Store list outside
+  # mix_price_cases_list[[i]] <- mix_price_df %>%
+  #   mutate(file_name = meta_df$file_name[i])
+  
+  # 7. week check
+  week_file <- meta_df$week[i]
+  week_data <- df$week_data
+  
+  week_distinct_count <- dplyr::n_distinct(week_data)
+  week_mismatch_count <- sum(week_data != week_file, na.rm = TRUE)
+  week_match_flag <- week_mismatch_count == 0 & week_distinct_count == 1
+  
+  # --- Output ---
+  data.frame(
+    
+    file_name = meta_df$file_name[i],
+    file_date = meta_df$file_date[i],
+    file_day = meta_df$day[i],
+    year_file = meta_df$year[i],
+    week_file = week_file,
+    # week_data = week_data,
+    start_day = meta_df$start_week[i],
+    end_day = meta_df$end_week[i],
+    
+    size_kb = meta_df$size_kb[i],
+    
+    records = nrow(df),
+    n_ean   = dplyr::n_distinct(EAN),
+    n_store = dplyr::n_distinct(df$POS_Store),
+    
+    total_sales   = sum(Sales, na.rm = TRUE),
+    total_revenue = sum(Revenue, na.rm = TRUE),
+    
+    dup_ean_multi_text = dup_ean_text,
+    ean_empty_count    = ean_empty,
+    ean_non_numeric    = ean_non_numeric,
+    ean_length_error   = ean_length_error,
+    mix_price_ean_count = mix_price_ean_count,
+    qty_decimal_count  = qty_decimal,
+    week_distinct_count = week_distinct_count,
+    week_mismatch_count = week_mismatch_count,
+    week_match_flag     = week_match_flag
+  )
+  
+  
+}) %>% dplyr::bind_rows()
+
+# =========================
+# MIX PRICE EXTRACTION
+# =========================
+
+df_all <- dplyr::bind_rows(data_list)
+
+
+df_all <- df_all %>%
+  mutate(
+    Sales   = as.numeric(gsub(",", ".", POS_POS_Quantity)),
+    Revenue = as.numeric(gsub(",", ".", POS_Amount_Tendered)),
+    calculate_price = ifelse(Sales > 0, round(Revenue / Sales, 2), NA)
+  )
+
+
+mix_price_ean <- df_all %>%
+  filter(!is.na(calculate_price)) %>%
+  group_by(POS_Barcode_No) %>%
+  summarise(
+    n_price = dplyr::n_distinct(calculate_price),
+    .groups = "drop"
+  ) %>%
+  filter(n_price > 1)
+
+mix_price_cases_all <- df_all %>%
+  filter(POS_Barcode_No %in% mix_price_ean$POS_Barcode_No) %>%
+  filter(!is.na(POS_Barcode_No) & calculate_price != 0) %>% 
+  select(POS_Start_Receipt_Date_Jahr,POS_Woche_des_Jahres,POS_Store,POS_POS_Quantity,POS_Amount_Tendered,POS_Amount_Netto,POS_Barcode_No,Bezeichnung,VKE,Warengruppecode,Warengruppe,calculate_price)
+
+mix_price_cases_all <- mix_price_cases_all %>%
+  mutate(
+    tobacco_type = case_when(
+      
+      # Real tobacco
+      Warengruppe %in% c(
+        "Tabak",
+        "Zigaretten",
+        "Zigaretten & Co",
+        "Cigarillos / Cigarren",
+        "Pfeifentabak",
+        "Kautabak",
+        "Schnupftabak",
+        "IQOS",
+        "Heat-not-burn"
+      ) ~ "Tobacco",
+      
+      # Accessories (IMPORTANT)
+      Warengruppe %in% c(
+        "Zigarettenpapier",
+        "Raucherbedarf",
+        "Sonst.Raucherbedarf",
+        "Taschenfeuerzeuge"
+      ) ~ "Accessory",
+      
+      # Others
+      TRUE ~ "Non-Tobacco"
+    )
+  )
+
+mix_price_tobacco <- mix_price_cases_all %>%
+  filter(tobacco_type == "Tobacco")
+
+mix_price_summary <- mix_price_tobacco %>%
+  group_by(EAN = POS_Barcode_No) %>%
+  summarise(
+    min_price = min(calculate_price, na.rm = TRUE),
+    max_price = max(calculate_price, na.rm = TRUE),
+    
+    n_price = dplyr::n_distinct(calculate_price),
+    
+    prices = paste(sort(unique(calculate_price)), collapse = ", "),
+    
+    total_revenue = sum(as.numeric(gsub(",", ".", POS_Amount_Tendered)), na.rm = TRUE),
+    
+    ratio = round(max_price / min_price,2),
+    
+    price_diff = max_price - min_price,
+    
+    n_records = n(),
+    .groups = "drop") %>%
+  filter(
+    # Must have multiple prices
+    n_price > 1,
+    
+    # AND meaningful difference
+    ratio > 2,      # key rule (pack vs bundle)
+    
+    # OR absolute gap (backup)
+    price_diff > 5  # avoid small differences
+  ) %>% arrange(EAN)
+
+raw_mix_price_ean_list <- mix_price_summary$EAN
+
+final_mix_price_lst <- mix_price_tobacco %>%
+  filter(
+    POS_Barcode_No %in% raw_mix_price_ean_list,
+    !is.na(POS_Barcode_No),
+    !is.na(calculate_price),
+    calculate_price != 0
+  ) %>% arrange(POS_Barcode_No)
+
+rawdata_mix_price_file <- file.path(PATHRES, paste0(toupper(foldername_data),"_RAW_DATA_MIX_PRICE.csv"))
+write.csv2(final_mix_price_lst, rawdata_mix_price_file, row.names = FALSE, quote=FALSE)        
+
+# ---- Total Errors in a file ----
+# summary_df$total_errors <- 
+#   summary_df$dup_ean_multi_text +
+#   summary_df$ean_empty_count +
+#   summary_df$ean_non_numeric +
+#   summary_df$ean_length_error +
+#   summary_df$qty_decimal_count +
+#   summary_df$ean_unclassified
+
+# --- Flag files has errors
+# summary_df$has_issue <- summary_df$total_errors > 0
+
+# Combine all files for PMI Process
+factdata_raw_1 <- data_list_1 %>% bind_rows()
+factdata_raw_2 <- data_list_2 %>% bind_rows()
+  
+factdata_df_1 <- factdata_raw_1 %>%
+  select (POS_Start_Receipt_Date_Jahr,POS_Woche_des_Jahres,POS_Store, POS_POS_Quantity,POS_Amount_Tendered,POS_Amount_Netto,POS_Barcode_No,Bezeichnung,VKE,Warengruppecode,Warengruppe,file_date,week_in_data)
+
+factdata_df_2 <- factdata_raw_2 %>%
+  select (POS_Start_Receipt_Date_Jahr,POS_Woche_des_Jahres,POS_Store, POS_POS_Quantity,POS_Amount_Tendered,POS_Amount_Netto,POS_Barcode_No,Bezeichnung,VKE,Warengruppecode,Warengruppe,file_date,week_in_data)
+
+
+factdata_final <-factdata_df_2 %>%
+  mutate(Retailer = POS_Store,
+         Date = week_in_data,
+         Month = format(as.Date(file_date), "%Y%m"),
+         EAN = POS_Barcode_No) %>%
+  group_by(file_date,Date,Retailer,EAN,Bezeichnung,VKE,Warengruppecode,Warengruppe,Month) %>%
+  summarise(Sales=sum(as.numeric(str_replace(POS_POS_Quantity, "," , "."))),
+            Revenue=sum(as.numeric(str_replace(POS_Amount_Tendered, "," , "."))),
+            calculate_price = round((Revenue/Sales),2),
+            .groups = "drop")
+
+
+### PMG ###
+pmg_product_files <- dir(PATHPMI, pattern = "pmg_product", full.names = TRUE)
+pmg_product <- pmg_product_files [str_detect(basename(pmg_product_files), "20260622")]
+
+missing_ean_files <- dir(PATHPMI, pattern = "missing_ean", full.names = TRUE)
+missing_ean <- missing_ean_files [str_detect(basename(missing_ean_files), "20260617")]
+
+codierung_PMI = "UTF-8"
+
+# =========================
+# HELP FUNCTION 
+# =========================
+nosigns <- function(variable) {
+  variable <- gsub("[^0-9]", "", variable)  # Entfernt alle nicht-numerischen Zeichen
+  return(variable)
+}
+
+remove_leading_zeros <- function(x) {
+  return(sub("^0+", "", as.character(x))) # Entfernt alle führenden Nullen
+}
+
+normalize_key <- function(x) {
+  
+  x_chr <- as.character(x)
+  
+  x_trim <- trimws(x_chr)
+  
+  x_clean <- gsub("^[^[:alnum:]]+|[^[:alnum:]]+$", "", x_trim)
+  
+  toupper(x_clean)
+}
+
+#---------------------------------------------------------------------------------------------------
+############ PMI FILES EINLESEN UND UM MISSING_EANS ERGÄNZEN)############
+pmi_file_raw <- read.csv(pmg_product,
+                         sep = ";",
+                         colClasses=c("character", "character", "character", "character", "character", "character", "character", "character", "character", "character",
+                                      "character", "character", "character", "character", "character", "character", "character", "character", "character", "character",
+                                      "character", "character", "character", "character", "character", "character", "character", "character", "character", "character",
+                                      "character", "character", "character", "character", "character", "character", "character", "character", "character", "character",
+                                      "character", "character", "character", "character", "character", "character", "character", "character", "character"),
+                         na.strings = c("NULL"), fileEncoding = codierung_PMI)
+
+
+pmi_file_raw <- pmi_file_raw %>% mutate(EAN = nosigns(EAN))
+pmi_file_raw <- pmi_file_raw %>% mutate(EAN = as.character(as.numeric(EAN)))
+pmi_file_raw <- pmi_file_raw %>% distinct(EAN, .keep_all = TRUE) #QC: alle Duplikate von EANs entfernen (war bisher bei einer EAN der Fall durch das Anwenden von nosigns)
+
+#MISSING_EANS DATEI EINLESEN + FÜHRENDE NULLEN BEI EAN UND INT. ART.-NR. ENTFERNEN
+missing_eans <- read.csv(missing_ean,
+                         sep = ";",
+                         colClasses=c("character", "character", "character", "character", "character", "character", "character", "character", "character", "character", "character"),
+                         na.strings = c("NULL"), fileEncoding = codierung_PMI) #angepasst wegen Neubauers eigener Datei
+
+missing_eans <- missing_eans %>%
+  distinct(WHOLESALER, INTERNAL_ARTICLE_NR, .keep_all = TRUE) %>%
+  filter(WHOLESALER == "ALL_RETAILER") %>%
+  arrange(WHOLESALER) %>%
+  mutate(EAN = nosigns(EAN),
+         EAN = as.character(as.numeric(EAN)),
+         INTERNAL_ARTICLE_NR = remove_leading_zeros(INTERNAL_ARTICLE_NR)) %>%
+  mutate(ist_duplikat = duplicated(INTERNAL_ARTICLE_NR)) %>%
+  filter(!(ist_duplikat & WHOLESALER != "ALL_RETAILER")) %>%
+  select(-ist_duplikat)
+
+#PMI-FILE ERGÄNZEN UM MISSING_EANS + EAN_FUER_FILTER-SPALTE ERSTELLEN
+
+# Duplikcate prüfen und entfernen
+common_values <- intersect(pmi_file_raw$EAN, missing_eans$INTERNAL_ARTICLE_NR)
+length_common_values <- length(common_values)
+Missing_items_without_duplicates <- missing_eans %>% filter(!INTERNAL_ARTICLE_NR %in% common_values)
+
+
+#Artikelliste duplizieren und mit missing_ean Datei joinen:
+
+Artikelstamm_for_join <- pmi_file_raw
+
+EAN_join <- Missing_items_without_duplicates %>%
+  dplyr::inner_join(Artikelstamm_for_join, by = c("EAN" = "EAN")) %>%
+  rename(EAN_OLD = EAN,
+         EAN = INTERNAL_ARTICLE_NR) %>%
+  select("EAN","EANTYPE","EAN_OLD","PRODUCTNUMBER","VALIDFROM","VALIDTO","DWHPRODUCTID","PRODUCTSTATUS","PRODUCTNAME","SHORTCODE","PRODUCTGROUPL1","PRODUCTGROUPL2","OTP_PACK_CONTENT_G","OTP_BUNDLE_CONTENT_G","ITEMSPERPACK","ITEMSPERBUNDLE",
+         "PACKSPERBUNDLE","UNITOFMEASUREFACTORGRAM","UNITOFMEASUREFACTORPIECE","MASBRAND","PRODUCER","DISTRIBUTOR","BRANDFAMILY","PRODUCTGROUPFINECUT","COUNTRY","PRODUCTTYPE","PACKAGETYPE","OFFERTYPE","FILTERTYPE","FLAVOURPRODUCTGROUP",
+         "FLAVOURBLEND","FLAVOURIMAGE","FLAVOURMENTHOL","PRICEGROUP","LENGTHMM","NICOTINE","CONDENSATE","CARBONMONOXIDE","CODING","TIPPING","TASTEINTL","LENGTHTYPE","DISTRIBUTIONCATEGORY","THICKNESS","PACKSIZE","PACKTYPE","GIMSBRANDDIFF",
+         "GIMSPACKTYPE","GIMSLENGTH","PRICE")
+
+#finale pmg_group Datei erstellen:
+pmi_file <- bind_rows(pmi_file_raw, EAN_join)
+pmi_file <- pmi_file %>% mutate(EAN_fuer_Filter = EAN)
+
+
+check_QC_bundle <- pmi_file %>%
+  filter(EANTYPE=="B" & (ITEMSPERBUNDLE == "" | OTP_BUNDLE_CONTENT_G == "")) %>%
+  filter(PRODUCER == "PMG" | PRODUCTTYPE == "Cigarette" | LENGTHTYPE == "RRP HTP STICKS" | PRODUCTTYPE == "Finecut")
+
+check_QC_pack <- pmi_file %>%
+  filter(EANTYPE=="P" & (ITEMSPERPACK == "" | OTP_PACK_CONTENT_G == "")) %>%
+  filter(PRODUCER == "PMG" | PRODUCTTYPE == "Cigarette" | LENGTHTYPE == "RRP HTP STICKS" | PRODUCTTYPE == "Finecut")
+
+# =========================
+# MATCH WITH PMI
+# =========================
+
+df_final <- factdata_final %>%
+  left_join(pmi_file, by = "EAN") %>% 
+  mutate(match_pmi1 = case_when( #optional, für mich zum prüfen
+    is.na(PRODUCTNAME) ~ "kein match",
+    !is.na(PRODUCTNAME) ~ "match"))
+
+# ---------- QC Rule to check MIX-PRICE --------
+
+mix_price_QC_check <- df_final %>%
+  mutate(PRICE = as.numeric(PRICE),
+    check_price = ifelse(abs(as.numeric(PRICE) - calculate_price) < 0.01, "y", "n")) %>%
+  
+  # expected type from business rule
+  mutate(expected_type = case_when(
+    calculate_price >= 3  & calculate_price <= 25  ~ "P",
+    calculate_price >= 46 & calculate_price <= 100 ~ "B",
+    TRUE ~ "UNKNOWN"
+    ),
+    
+    # strict mismatch 
+    type_mismatch_flag = expected_type != EANTYPE & expected_type != "UNKNOWN",
+    
+    # mismatch Type with Threshold price = 30
+    price_type_flag = case_when(
+      EANTYPE == "P" & calculate_price > 30 ~ "P_as_Bundle",
+      EANTYPE == "B" & calculate_price < 30 ~ "B_as_Pack",
+      TRUE ~ "OK"
+    )
+  ) %>%
+  select (file_date,Date,Month,Retailer,EAN,Bezeichnung,Warengruppecode,Warengruppe,
+          EANTYPE,expected_type,PRODUCTNUMBER,Sales,Revenue,calculate_price,PRICE,check_price,type_mismatch_flag, price_type_flag,PACKSPERBUNDLE,ITEMSPERPACK,everything())
+
+price_issues<- mix_price_QC_check %>%
+  filter(match_pmi1 == "match") %>%
+  filter(type_mismatch_flag == TRUE | price_type_flag != "OK")
+
+pmi_price_issues_ean_lst <- price_issues %>%
+  distinct(EAN) %>%
+  pull(EAN)
+
+PMI_mix_price_lst <- factdata_df_2 %>%
+  filter(
+    POS_Barcode_No %in% pmi_price_issues_ean_lst,
+    !is.na(POS_Barcode_No)) %>%
+  arrange(POS_Barcode_No)
+
+PMI_mix_price_lst <- PMI_mix_price_lst %>%
+  left_join(pmi_file, by = c("POS_Barcode_No" = "EAN")) %>%
+  select(POS_Start_Receipt_Date_Jahr,POS_Woche_des_Jahres,POS_Store,POS_POS_Quantity,POS_Amount_Tendered,POS_Amount_Netto,POS_Barcode_No,Bezeichnung,VKE,Warengruppecode,Warengruppe,EANTYPE,PACKSPERBUNDLE,ITEMSPERPACK,ITEMSPERBUNDLE)
+
+price_issues_file <- file.path(PATHRES, paste0(toupper(foldername_data),"_PMI_PRICE_ISSUES.csv"))
+write.csv2(PMI_mix_price_lst, price_issues_file, row.names = FALSE, quote=FALSE)
+
+# --------- Revenue Impact of Price Issues ------------
+
+revenue_per_ean <- df_final %>%
+  filter(match_pmi1 == "match") %>%
+  group_by(EAN) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE),
+            Total_revenue = sum(Revenue, na.rm = TRUE),
+            .groups = "drop") %>%
+  mutate(price_issue_flag = ifelse(EAN %in% price_issues_ean, "Issue", "No_Issue"))
+
+revenue_summary <- revenue_per_ean %>%
+  group_by(price_issue_flag) %>%
+  summarise(Total_Sales = sum(Total_Sales), 
+            Total_revenue = sum(Total_revenue), .groups = "drop") %>%
+  mutate(pct_Revenue = (Total_revenue / sum(Total_revenue))*100,
+         pct_Sales = (Total_Sales / sum(Total_Sales))*100)
+
+
+# Adding additional columns (sales_factor, sales_factor_otp,Total Sticks, Total G) :
+df_final_sales <- df_final %>%
+  mutate(
+    ITEMSPERBUNDLE = as.numeric(ITEMSPERBUNDLE),
+    ITEMSPERPACK = as.numeric(ITEMSPERPACK),
+    # Sales Factor
+    salesfactor = ifelse(EANTYPE == "B", ITEMSPERBUNDLE, ITEMSPERPACK),
+    "Total Sticks" = as.numeric(Sales) * salesfactor,
+    OTP_BUNDLE_CONTENT_G = as.numeric(OTP_BUNDLE_CONTENT_G),
+    OTP_PACK_CONTENT_G = as.numeric(OTP_PACK_CONTENT_G),
+    # Sales Factor OTP
+    salesfactor_otp = ifelse(EANTYPE == "B", OTP_BUNDLE_CONTENT_G, OTP_PACK_CONTENT_G),
+    # salesfactor_otp = ifelse(EANTYPE == "B" & !is.na(GebindeMenge), OTP_PACK_CONTENT_G, OTP_BUNDLE_CONTENT_G),
+    # salesfactor_otp = ifelse(EANTYPE == "B", OTP_BUNDLE_CONTENT_G, OTP_PACK_CONTENT_G),
+    "Total G" = as.numeric(Sales) * salesfactor_otp)
+
+# =========================
+# EXTRACT 6 REPORTS
+# =========================
+
+##### PMI OUTPUT ----------------------------------------------------------
+#FileName	Date	Retail Store	PRODUCTNUMBER	Artikel	Total Sales	Total Sticks	Total Revenue
+
+pmi_output <- df_final_sales %>% 
+  filter(PRODUCER == "PMG") %>%
+  mutate(FileName = paste0(toupper(foldername_data),"_PMG_", Date),
+         `Retail Store` = Retailer) %>%
+  group_by(FileName,Date,`Retail Store`,PRODUCTNUMBER,PRODUCTNAME,Month) %>%
+  summarise(`Total Sales`= floor(sum(as.numeric(Sales))),
+            `Total Sticks`= floor(sum(`Total Sticks`)),
+            `Total Revenue`= floor(sum(Revenue)),
+            .groups = "drop") %>%
+  rename(Artikel = PRODUCTNAME) %>%
+  select(FileName,Date,`Retail Store`,PRODUCTNUMBER,Artikel,`Total Sales`,`Total Sticks`,`Total Revenue`,Month)
+
+####CIG OUTPUT: ----------------------------------------------------------
+
+#FileName	Date	Retail Store	Total Sticks	Total Revenue
+
+cig_output <- df_final_sales %>% 
+  filter((PRODUCTTYPE == "Cigarette" | LENGTHTYPE == "RRP HTP STICKS") & !is.na(EAN)) %>%
+  mutate(FileName = paste0(toupper(foldername_data),"_CIG_OUTLET_", Date),
+         `Retail Store` = Retailer) %>%
+  group_by(FileName,Date,`Retail Store`,Month) %>%
+  summarise(`Total Sticks`= floor(sum(`Total Sticks`)),
+            `Total Revenue`= floor(sum(Revenue)),
+            .groups = "drop") %>%
+  select(FileName,Date,`Retail Store`,`Total Sticks`,`Total Revenue`,Month)
+
+# ECIG OUTPUT -------------------------------------------------------------
+
+#FileName	Date	Retail Store	Total Sales	Total Revenue
+
+ecig_output_9961 <- df_final_sales %>% 
+  filter(grepl("ECigarette", DISTRIBUTIONCATEGORY) & !is.na(EAN) & PACKAGETYPE %in% c("BOTTLE", "PODS", "CAPS")) %>%
+  mutate(FileName = paste0(toupper(foldername_data),"_ECIG_OUTLET_9961_", Date),
+         `Retail Store` = Retailer) %>%
+  group_by(FileName,Date,`Retail Store`,Month) %>%
+  summarise(`Total Sales`= floor(sum(as.numeric(Sales))),
+            `Total Revenue`= floor(sum(`Revenue`)),
+            .groups = "drop") %>%
+  select(FileName,Date,`Retail Store`,`Total Sales`,`Total Revenue`,Month)
+
+ecig_output_9962 <- df_final_sales %>% 
+  filter(grepl("ECigarette", DISTRIBUTIONCATEGORY) & !is.na(EAN) & PACKAGETYPE == "Box") %>%
+  mutate(FileName = paste0(toupper(foldername_data),"_ECIG_OUTLET_9962_", Date),
+         `Retail Store` = Retailer) %>%
+  group_by(FileName,Date,`Retail Store`,Month) %>%
+  summarise(`Total Sales`= floor(sum(as.numeric(Sales))),
+            `Total Revenue`= floor(sum(`Revenue`)),
+            .groups = "drop") %>%
+  select(FileName,Date,`Retail Store`,`Total Sales`,`Total Revenue`,Month)
+
+ecig_output_9963 <- df_final_sales %>% 
+  filter(grepl("ECigarette", DISTRIBUTIONCATEGORY) & !is.na(EAN) & PACKAGETYPE == "KIT") %>%
+  mutate(FileName = paste0(toupper(foldername_data),"_ECIG_OUTLET_9963_", Date),
+         `Retail Store` = Retailer) %>%
+  group_by(FileName,Date,`Retail Store`,Month) %>%
+  summarise(`Total Sales`= floor(sum(as.numeric(Sales))),
+            `Total Revenue`= floor(sum(`Revenue`)),
+            .groups = "drop") %>%
+  select(FileName,Date,`Retail Store`,`Total Sales`,`Total Revenue`,Month)
+
+
+# OTP OUTPUT --------------------------------------------------------------
+
+#FileName	Date	Retail Store	Total G	Total Revenue
+
+otp_output <- df_final_sales %>% 
+  filter(PRODUCTTYPE == "Finecut" & !is.na(EAN)) %>%
+  mutate(FileName = paste0(toupper(foldername_data),"_OTP_OUTLET_", Date),
+         `Retail Store` = Retailer) %>%
+  group_by(FileName,Date,`Retail Store`,Month) %>%
+  # group_by(FileName,Date) %>%
+  summarise(`Total G`= floor(sum(`Total G`)),
+            `Total Revenue`= floor(sum(`Revenue`)),
+            .groups = "drop") %>%
+  select(FileName,Date,`Retail Store`,`Total G`,`Total Revenue`,Month)
+
+# MISSING ITEM OUTPUT ------------------------------------------------------------
+
+# FileName;Retailer;GTIN;Bezeichnung;Warengruppe;Total Sales;Total Revenue
+
+missingitems_output <- df_final_sales %>% 
+  filter(match_pmi1=="kein match") %>%
+  mutate(FileName = paste0(toupper(foldername_data),"_MISSING_ITEMS_",Date),
+         Warengruppe=WGR,
+         Retailer = toupper(foldername_data)) %>%
+  group_by(FileName,Date,Retailer,EAN,Artikelbezeichnung,Warengruppe,Month) %>% 
+  summarise(`Total Sales`= floor(sum(`Sales`)),
+            `Total Revenue`= floor(sum(`Revenue`)),
+            .groups = "drop") %>%
+  select(FileName,Retailer,GTIN=EAN,Bezeichnung=Artikelbezeichnung,Warengruppe,`Total Sales`,`Total Revenue`) %>%
+  arrange(desc(`Total Sales`))
+
+# EXTRACT 6 REPORTS
+# =========================
+
+# PMG, CIG, ECIG, OTP
+
+all_outputs <- list(
+  PMG = pmi_output,
+  CIG = cig_output,
+  OTP = otp_output,
+  ecig_9961 = ecig_output_9961,
+  ecig_9962 = ecig_output_9962,
+  ecig_9963 = ecig_output_9963
+)
+
+# loop through categories
+for (cat_name in names(all_outputs)) {
+  
+  df <- all_outputs[[cat_name]]
+  
+  # split by Date
+  split_list <- split(df, df$Date)
+  
+  # loop through each date
+  for (dt in names(split_list)) {
+    
+    report_df <- split_list[[dt]]
+    write.csv2(report_df,file.path(PATHRES, paste0(unique(report_df$FileName), ".csv")),row.names = FALSE, quote = FALSE)
+    
+  }
+}
+
+# =========================
+# SAVE TO CSV
+# =========================
+
+# write_output <- function(output, prefix, base_path = PATHRES) {
+#   file_name <- file.path(base_path, paste0(prefix,  year, week, ".csv"))
+#   write.csv(output, file_name, row.names = FALSE)
+# }
+# 
+# write_output(pmi_output,       paste0(foldername_data,"_PMG_"))
+# write_output(cig_output,       paste0(foldername_data,"_CIG_OUTLET"))
+# write_output(ecig_output_9961, paste0(foldername_data,"_ECIG_OUTLET_9961_"))
+# write_output(ecig_output_9962, paste0(foldername_data,"_ECIG_OUTLET_9962_"))
+# write_output(ecig_output_9963, paste0(foldername_data,"_ECIG_OUTLET_9963_"))
+# write_output(otp_output,       paste0(foldername_data,"_OTP_OUTLET"))
+# 
+# missingitems_output_file <- file.path(PATHRES, paste0(foldername_data,"_MISSING_ITEMS_", year, week,".csv"))
+# write.csv2(missingitems_output, missingitems_output_file, row.names = FALSE, quote=FALSE)                     
