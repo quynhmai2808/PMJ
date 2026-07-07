@@ -61,6 +61,9 @@
 # =============================================================================
 # SECTION 2 — GENERIC READ LOGIC (reusable across providers)
 # =============================================================================
+# Shared helpers (nosigns, parse_date_*, etc.) live in utils.R — sourced once
+# here so ingest_<provider>.R files are self-contained when source()d from main.
+source("functions/utils.R")
 
 #' Discover files matching a pattern and build a metadata table.
 .build_meta <- function(path, pattern, date_extract_fn, date_format) {
