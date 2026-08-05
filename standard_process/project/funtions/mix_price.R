@@ -22,8 +22,8 @@ classify_tobacco_type <- function(wgr_text, tobacco_groups, accessory_groups) {
 #' @param diff_min        Min absolute price gap to flag (default 5).
 #' @return list(summary = mix_price_summary df, raw = raw rows of flagged EANs)
 mix_price_check <- function(std_data, tobacco_groups, accessory_groups,
-                             ratio_min = 2, diff_min = 5) {
-
+                            ratio_min = 2, diff_min = 5) {
+  
   # Compute calculate_price at row level for detection
   df <- std_data %>%
     dplyr::mutate(
@@ -34,7 +34,7 @@ mix_price_check <- function(std_data, tobacco_groups, accessory_groups,
       ),
       tobacco_type = classify_tobacco_type(wgr_text, tobacco_groups, accessory_groups)
     )
-
+  
   # EANs with more than one distinct price (any category)
   multi_price_eans <- df %>%
     dplyr::filter(!is.na(calc_price)) %>%
@@ -42,12 +42,12 @@ mix_price_check <- function(std_data, tobacco_groups, accessory_groups,
     dplyr::summarise(n_price = dplyr::n_distinct(calc_price), .groups = "drop") %>%
     dplyr::filter(n_price > 1) %>%
     dplyr::pull(EAN)
-
+  
   # Restrict to tobacco items only
   tobacco_df <- df %>%
     dplyr::filter(EAN %in% multi_price_eans, tobacco_type == "Tobacco",
                   !is.na(EAN), !is.na(calc_price), calc_price != 0)
-
+  
   # Summarise and apply business rule filters
   mix_price_summary <- tobacco_df %>%
     dplyr::group_by(EAN) %>%
@@ -64,11 +64,11 @@ mix_price_check <- function(std_data, tobacco_groups, accessory_groups,
     ) %>%
     dplyr::filter(n_price > 1, ratio > ratio_min, price_diff > diff_min) %>%
     dplyr::arrange(EAN)
-
+  
   # Raw rows for flagged EANs
   raw_flagged <- tobacco_df %>%
     dplyr::filter(EAN %in% mix_price_summary$EAN) %>%
     dplyr::arrange(EAN)
-
+  
   list(summary = mix_price_summary, raw = raw_flagged)
 }
