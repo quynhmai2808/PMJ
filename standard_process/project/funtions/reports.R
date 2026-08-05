@@ -14,14 +14,14 @@ match_with_pmi <- function(fact_df, pmi_file) {
 #' Flag rows where PMI price or EANTYPE disagrees with calculate_price.
 #' Returns list(checked, price_issues, price_issues_ean).
 mix_price_qc_check <- function(df_final,
-                                price_pack_min, price_pack_max,
-                                price_bundle_min, price_bundle_max,
-                                price_threshold) {
+                               price_pack_min, price_pack_max,
+                               price_bundle_min, price_bundle_max,
+                               price_threshold) {
   checked <- df_final %>%
     dplyr::mutate(
       PRICE       = as.numeric(PRICE),
       check_price = dplyr::if_else(abs(PRICE - calculate_price) < 0.01, "y", "n"),
-
+      
       expected_type = dplyr::case_when(
         calculate_price >= price_pack_min   & calculate_price <= price_pack_max   ~ "P",
         calculate_price >= price_bundle_min & calculate_price <= price_bundle_max ~ "B",
@@ -34,11 +34,11 @@ mix_price_qc_check <- function(df_final,
         TRUE ~ "OK"
       )
     )
-
+  
   price_issues <- checked %>%
     dplyr::filter(match_pmi == "match",
                   type_mismatch_flag == TRUE | price_type_flag != "OK")
-
+  
   list(
     checked          = checked,
     price_issues     = price_issues,
@@ -151,11 +151,11 @@ build_all_reports <- function(df_final_sales, provider) {
     CIG           = build_cig_output(df_final_sales, provider),
     OTP           = build_otp_output(df_final_sales, provider),
     ecig_9961     = build_ecig_output(df_final_sales, provider, "9961",
-                                       function(pt) pt %in% c("BOTTLE", "PODS", "CAPS")),
+                                      function(pt) pt %in% c("BOTTLE", "PODS", "CAPS")),
     ecig_9962     = build_ecig_output(df_final_sales, provider, "9962",
-                                       function(pt) pt == "Box"),
+                                      function(pt) pt == "Box"),
     ecig_9963     = build_ecig_output(df_final_sales, provider, "9963",
-                                       function(pt) pt == "KIT"),
+                                      function(pt) pt == "KIT"),
     MISSING_ITEMS = build_missingitems_output(df_final_sales, provider)
   )
 }
