@@ -17,7 +17,7 @@
 #'   Date, Month, Retailer, EAN, product_text, wgr_code, wgr_text,
 #'   Sales, Revenue, calculate_price
 factdata_final <- function(std_data) {
-
+  
   std_data %>%
     dplyr::group_by(
       Date     = week_in_data,
