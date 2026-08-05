@@ -1,5 +1,5 @@
-## functions/ingest_combase.R
-## Provider-specific ingest script for Combase.
+## functions/ingest.R
+## Provider-specific ingest script for Combase AS MUSTER
 ## Responsibilities:
 ##   1. Define all Combase-specific config (paths, patterns, column mapping)
 ##   2. Discover + read raw files (meta_df + read_df logic)
@@ -61,15 +61,12 @@
 # =============================================================================
 # SECTION 2 — GENERIC READ LOGIC (reusable across providers)
 # =============================================================================
-# Shared helpers (nosigns, parse_date_*, etc.) live in utils.R — sourced once
-# here so ingest_<provider>.R files are self-contained when source()d from main.
-source("functions/utils.R")
 
 #' Discover files matching a pattern and build a metadata table.
 .build_meta <- function(path, pattern, date_extract_fn, date_format) {
-
+  
   file_paths <- list.files(path = path, pattern = pattern, full.names = TRUE)
-
+  
   if (length(file_paths) == 0) {
     return(data.frame(
       file_path  = character(0), file_name  = character(0),
@@ -80,7 +77,7 @@ source("functions/utils.R")
       stringsAsFactors = FALSE
     ))
   }
-
+  
   data.frame(file_path = file_paths, file_name = basename(file_paths),
              stringsAsFactors = FALSE) %>%
     dplyr::mutate(
@@ -114,21 +111,21 @@ source("functions/utils.R")
 #' Read all files in a meta table, attach week_in_data + week_match_flag.
 #' All columns read as character; comma decimals normalised to dot.
 .read_raw <- function(meta, sep, encoding, quote,
-                       year_col, week_col) {
-
+                      year_col, week_col) {
+  
   if (nrow(meta) == 0) return(list())
-
+  
   lapply(seq_len(nrow(meta)), function(i) {
-
+    
     df <- read.csv(meta$file_path[i], sep = sep, fileEncoding = encoding,
                    quote = quote, fill = TRUE, colClasses = "character")
-
+    
     # Normalise decimal separator globally once
     df <- df %>%
       dplyr::mutate(dplyr::across(dplyr::everything(), ~ gsub(",", ".", .x)))
-
+    
     parsed <- .parse_date_year_week(df[[year_col]], df[[week_col]])
-
+    
     df %>%
       dplyr::mutate(
         file_name       = meta$file_name[i],
@@ -163,18 +160,18 @@ source("functions/utils.R")
       # --- Standard date columns (already computed in .read_raw) ---
       week_in_data  = week_in_data,
       month_in_data = month_in_data,
-
+      
       # --- Standard dimension columns ---
       store_id     = .data[[.COL_STORE]],
       EAN          = nosigns(.data[[.COL_EAN]]),         # strip non-numeric
       product_text = .data[[.COL_TEXT]],
       wgr_code     = .data[[.COL_WGRCODE]],
       wgr_text     = .data[[.COL_WGR]],
-
+      
       # --- Standard measure columns ---
       sales_units   = as.numeric(.data[[.COL_QTY]]),
       sales_revenue = as.numeric(.data[[.COL_REVENUE]]),
-
+      
       # --- einzelpreis: Combase has no raw price column, compute from data ---
       # Set to NA here; calculate_price will be derived in factdata_final()
       # from sales_revenue / sales_units for ALL providers consistently.
@@ -196,31 +193,31 @@ source("functions/utils.R")
 #'   provider   = provider name string
 #' )
 ingest <- function() {
-
+  
   # 1. Discover files
   meta_1 <- .build_meta(.PATHORG, .PATTERN_1, .DATE_EXTRACT_1, .DATE_FORMAT)
   meta_2 <- .build_meta(.PATHORG, .PATTERN_2, .DATE_EXTRACT_2, .DATE_FORMAT)
-
+  
   # 2. Read raw files
   raw_list_1 <- .read_raw(meta_1, .SEP, .ENCODING, .QUOTE, .COL_YEAR, .COL_WEEK)
   raw_list_2 <- .read_raw(meta_2, .SEP, .ENCODING, .QUOTE, .COL_YEAR, .COL_WEEK)
-
+  
   # 3. Bind into single raw data.frame per list
   raw_df_1 <- dplyr::bind_rows(raw_list_1)
   raw_df_2 <- dplyr::bind_rows(raw_list_2)
-
+  
   # 4. Standardise to output contract
   # data_list_2 is used for the fact table (date-accurate filenames)
   # data_list_1 is kept for QC summary only — still standardised for consistency
   std_data_1 <- .standardise(raw_df_1)
   std_data_2 <- .standardise(raw_df_2)
-
+  
   # 5. Build unified meta table (both sources, tagged by source)
   meta_combined <- dplyr::bind_rows(
     dplyr::mutate(meta_1, source = "list_1"),
     dplyr::mutate(meta_2, source = "list_2")
   )
-
+  
   # 6. Return standard contract
   list(
     data     = std_data_2,          # fact data: shared functions use this
