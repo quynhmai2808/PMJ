@@ -1,5 +1,5 @@
-## main_combase.R
-## Orchestrates the full Combase ETL pipeline.
+## main.R
+## Orchestrates the full ETL pipeline with Combase AS MUSTER
 ## To run for a different provider: copy this file as main_<provider>.R
 ## and change ONLY the source() call on line 1 of SECTION 1.
 
@@ -16,14 +16,14 @@ library(stringr)
 # =============================================================================
 # SECTION 1 — PROVIDER SELECTION (only line that changes per provider)
 # =============================================================================
-source("functions/ingest_combase.R")   # swap to ingest_provider2.R for next provider
+source("/qa/data1/PMI/Code/R_profiling_framework/data_pipeline/ingest_COMBASE.R")   # swap to ingest_"provider_name".R for next provider
 
 # --- Shared functions (never change) ---
-source("functions/summary_df.R")
-source("functions/mix_price.R")
-source("functions/factdata_final.R")
-source("functions/pmg_process.R")
-source("functions/reports.R")
+source("/qa/data1/PMI/Code/R_profiling_framework/data_pipeline/functions/summary_df.R")
+source("/qa/data1/PMI/Code/R_profiling_framework/data_pipeline/functions/mix_price.R")
+source("/qa/data1/PMI/Code/R_profiling_framework/data_pipeline/functions/factdata_final.R")
+source("/qa/data1/PMI/Code/R_profiling_framework/data_pipeline/functions/pmg_process.R")
+source("/qa/data1/PMI/Code/R_profiling_framework/data_pipeline/functions/reports.R")
 
 # Business rule thresholds (could also live inside ingest_<provider>.R if
 # they need to differ per provider — kept here for visibility)
@@ -63,8 +63,8 @@ write.csv2(summary_all,
 message("[3/7] Checking mix prices...")
 all_raw_std <- dplyr::bind_rows(ingested$data_qc, ingested$data)
 mix_result  <- mix_price_check(all_raw_std, TOBACCO_GROUPS, ACCESSORY_GROUPS,
-                                ratio_min = MIX_PRICE_RATIO_MIN,
-                                diff_min  = MIX_PRICE_DIFF_MIN)
+                               ratio_min = MIX_PRICE_RATIO_MIN,
+                               diff_min  = MIX_PRICE_DIFF_MIN)
 write.csv2(mix_result$raw,
            file.path(ingested$paths$PATHRES,
                      paste0(toupper(ingested$provider), "_RAW_DATA_MIX_PRICE.csv")),
@@ -85,9 +85,9 @@ message("[6/7] Matching with PMI + price QC...")
 df_final <- match_with_pmi(fact_df, pmg$pmi_file)
 
 qc <- mix_price_qc_check(df_final,
-                          PRICE_PACK_MIN, PRICE_PACK_MAX,
-                          PRICE_BUNDLE_MIN, PRICE_BUNDLE_MAX,
-                          PRICE_THRESHOLD)
+                         PRICE_PACK_MIN, PRICE_PACK_MAX,
+                         PRICE_BUNDLE_MIN, PRICE_BUNDLE_MAX,
+                         PRICE_THRESHOLD)
 
 # Write PMI price issues (raw rows from ingested$data for flagged EANs)
 pmi_price_issues <- ingested$data %>%
@@ -111,4 +111,3 @@ all_outputs    <- build_all_reports(df_final_sales, ingested$provider)
 write_reports(all_outputs, ingested$paths$PATHRES)
 
 message(sprintf("Done in %.1f sec.", as.numeric(Sys.time() - st, units = "secs")))
-
