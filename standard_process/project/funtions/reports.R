@@ -13,28 +13,42 @@ match_with_pmi <- function(fact_df, pmi_file) {
 
 #' Flag rows where PMI price or EANTYPE disagrees with calculate_price.
 #' Returns list(checked, price_issues, price_issues_ean).
-mix_price_qc_check <- function(df_final,
+pmi_price_qc_check <- function(df_final,
                                price_pack_min, price_pack_max,
                                price_bundle_min, price_bundle_max,
                                price_threshold) {
   checked <- df_final %>%
     dplyr::mutate(
       PRICE       = as.numeric(PRICE),
+
+      # Step 1: compare calculate_price vs PMI PRICE
+      # Tolerance of €0.01 to handle floating-point rounding differences
       check_price = dplyr::if_else(abs(PRICE - calculate_price) < 0.01, "y", "n"),
-      
+
+      # Step 2: apply type checks ONLY when calculate_price differs from PMI PRICE.
+      # When prices match, the EANTYPE classification is confirmed correct — no further check needed.
       expected_type = dplyr::case_when(
+        check_price == "y"                                                         ~ NA_character_,
         calculate_price >= price_pack_min   & calculate_price <= price_pack_max   ~ "P",
         calculate_price >= price_bundle_min & calculate_price <= price_bundle_max ~ "B",
-        TRUE ~ "UNKNOWN"
+        TRUE                                                                       ~ "UNKNOWN"
       ),
-      type_mismatch_flag = (expected_type != EANTYPE & expected_type != "UNKNOWN"),
+
+      type_mismatch_flag = dplyr::case_when(
+        check_price == "y"       ~ FALSE,   # price matches → no mismatch
+        is.na(expected_type)     ~ FALSE,
+        expected_type == "UNKNOWN" ~ FALSE,
+        TRUE                     ~ (expected_type != EANTYPE)
+      ),
+
       price_type_flag = dplyr::case_when(
-        EANTYPE == "P" & calculate_price > price_threshold ~ "P_as_Bundle",
-        EANTYPE == "B" & calculate_price < price_threshold ~ "B_as_Pack",
-        TRUE ~ "OK"
+        check_price == "y"                                      ~ "OK",  # price matches → skip
+        EANTYPE == "P" & calculate_price > price_threshold      ~ "P_as_Bundle",
+        EANTYPE == "B" & calculate_price < price_threshold      ~ "B_as_Pack",
+        TRUE                                                    ~ "OK"
       )
     )
-  
+
   price_issues <- checked %>%
     dplyr::filter(match_pmi == "match",
                   type_mismatch_flag == TRUE | price_type_flag != "OK")
@@ -94,7 +108,7 @@ build_pmi_output <- function(df, provider) {
 
 build_cig_output <- function(df, provider) {
   df %>%
-    dplyr::filter((PRODUCTTYPE == "Cigarette" | LENGTHTYPE == "RRP HTP STICKS") & !is.na(EAN)) %>%
+    dplyr::filter((PRODUCTTYPE == "Cigarette" | LENGTHTYPE == "RRP HTP STICKS" | LENGTHTYPE == "HNP STICKS") & !is.na(EAN)) %>%
     dplyr::mutate(FileName = paste0(toupper(provider), "_CIG_OUTLET_", Date),
                   `Retail Store` = Retailer) %>%
     dplyr::group_by(FileName, Date, `Retail Store`, Month) %>%
@@ -129,18 +143,27 @@ build_otp_output <- function(df, provider) {
 #' Missing items: EANs in fact table with no PMI match.
 #' Uses standard column names: product_text -> Bezeichnung, wgr_text -> Warengruppe
 build_missingitems_output <- function(df, provider) {
+  # Missing Items are aggregated across ALL dates — no split by Date.
+  # One output file per provider covering all months in the batch.
+  # Distinct EAN level: group by EAN + product info only (no Date, no Retailer).
   df %>%
     dplyr::filter(match_pmi == "kein match") %>%
-    dplyr::mutate(FileName    = paste0(toupper(provider), "_MISSING_ITEMS_", Date),
-                  RetailerOut = toupper(provider)) %>%
-    dplyr::group_by(FileName, Date, RetailerOut, EAN, product_text, wgr_text, Month) %>%
-    dplyr::summarise(`Total Sales`   = floor(sum(Sales)),
-                     `Total Revenue` = floor(sum(Revenue)), .groups = "drop") %>%
-    dplyr::rename(Retailer    = RetailerOut,
-                  Bezeichnung = product_text,
-                  Warengruppe = wgr_text) %>%
-    dplyr::select(FileName, Date, Retailer, GTIN = EAN, Bezeichnung, Warengruppe,
-                  `Total Sales`, `Total Revenue`) %>%
+    dplyr::mutate(
+      FileName    = paste0(toupper(provider), "_MISSING_ITEMS"),
+      RetailerOut = toupper(provider)
+    ) %>%
+    dplyr::group_by(FileName, RetailerOut, EAN, product_text, wgr_text) %>%
+    dplyr::summarise(
+      `Total Sales`   = floor(sum(Sales,   na.rm = TRUE)),
+      `Total Revenue` = floor(sum(Revenue, na.rm = TRUE)),
+      .groups = "drop"
+    ) %>%
+    dplyr::rename(
+      Retailer    = RetailerOut,
+      Bezeichnung = product_text,
+      Warengruppe = wgr_text
+    ) %>%
+    dplyr::select(FileName, Retailer, GTIN = EAN, Bezeichnung, Warengruppe,`Total Sales`, `Total Revenue`) %>%
     dplyr::arrange(dplyr::desc(`Total Sales`))
 }
 
