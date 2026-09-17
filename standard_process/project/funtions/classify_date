@@ -1,0 +1,63 @@
+library(dplyr)
+library(timeDate)  # for extract easter day better
+
+# =========================
+# 1. HELPER: Finding german holidays
+# =========================
+get_german_holidays <- function(year, bundesland = "ALL") {
+  
+  easter_sunday <- as.Date(Easter(year))
+  
+  # --- Holidays (national) ---
+  national <- c(
+    Neujahr           = as.character(as.Date(sprintf("%d-01-01", year))),
+    Karfreitag        = as.character(easter_sunday - 2),
+    Ostermontag       = as.character(easter_sunday + 1),
+    TagDerArbeit      = as.character(as.Date(sprintf("%d-05-01", year))),
+    ChristiHimmelfahrt= as.character(easter_sunday + 39),
+    Pfingstmontag     = as.character(easter_sunday + 50),
+    TagDeutscheEinheit= as.character(as.Date(sprintf("%d-10-03", year))),
+    Weihnachten1      = as.character(as.Date(sprintf("%d-12-25", year))),
+    Weihnachten2      = as.character(as.Date(sprintf("%d-12-26", year)))
+  )
+  
+  # --- Holidays Bundesland (state-specific) ---
+  state_specific <- list(
+    HeiligeDreiKoenige = list(date = sprintf("%d-01-06", year), 
+                              states = c("BW","BY","ST")),
+    Fronleichnam       = list(date = as.character(easter_sunday + 60), 
+                              states = c("BW","BY","HE","NW","RP","SL")),
+    MariaeHimmelfahrt  = list(date = sprintf("%d-08-15", year), 
+                              states = c("BY","SL")),
+    Reformationstag    = list(date = sprintf("%d-10-31", year), 
+                              states = c("BB","MV","SN","ST","TH","HB","HH","NI","SH")),
+    Allerheiligen      = list(date = sprintf("%d-11-01", year), 
+                              states = c("BW","BY","NW","RP","SL"))
+  )
+  
+  state_dates <- c()
+  if (bundesland != "ALL") {
+    for (h in state_specific) {
+      if (bundesland %in% h$states) state_dates <- c(state_dates, h$date)
+    }
+  }
+  
+  as.Date(unique(c(national, state_dates)))
+}
+
+# =========================
+# 2. FUNCTION: classify day
+# =========================
+classify_day <- function(date, bundesland = "ALL") {
+  
+  date <- as.Date(date)
+  years_needed <- unique(year(date))
+  
+  holidays <- do.call(c, lapply(years_needed, get_german_holidays, bundesland = bundesland))
+  
+  case_when(
+    date %in% holidays        ~ "Feiertag",
+    weekdays(date) == "Sunday" ~ "Sonntag",
+    TRUE                       ~ "Werktag"
+  )
+}
